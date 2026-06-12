@@ -15,9 +15,11 @@ def main():
     parser.add_argument("--games", type=int, default=10000)
     parser.add_argument("--players", type=int, default=2)
     parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument("--equity-samples", type=int, default=100,
+                        help="Monte-Carlo rollouts per equity estimate (0 = off)")
     args = parser.parse_args()
     generate_training_data(args.games, args.out, num_players=args.players,
-                           seed=args.seed)
+                           seed=args.seed, equity_samples=args.equity_samples)
 
 
 if __name__ == "__main__":

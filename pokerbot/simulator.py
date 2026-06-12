@@ -12,6 +12,7 @@ import json
 import random
 
 from . import cards
+from .equity import estimate_equity
 from .evaluator import Evaluator
 from .features import extract_features
 
@@ -38,21 +39,21 @@ class Player:
     def act(self, table, player_index, only_call=False):
         to_call = table.call_amount(player_index)
         sample = table.make_sample(self, player_index)
-        action, amount = self.decide(table, player_index, to_call, only_call)
+        action, amount = self.decide(table, player_index, to_call, only_call, sample)
         amount = min(amount, STACK - table.bets[player_index])
         if table.bets[player_index] + amount >= STACK:
             action = ALL_IN
         sample["action"] = [action, amount]
         return action, amount, sample
 
-    def decide(self, table, player_index, to_call, only_call):
+    def decide(self, table, player_index, to_call, only_call, sample):
         return CALL, to_call
 
 
 class ThresholdPlayer(Player):
     """Legacy 'dumb' heuristic: calls until the river, then pot-bets strong hands."""
 
-    def decide(self, table, player_index, to_call, only_call):
+    def decide(self, table, player_index, to_call, only_call, sample):
         if only_call or len(table.board) < 5:
             return CALL, to_call
         player_score = table.evaluator.evaluate(self.hand, table.board)
@@ -66,34 +67,49 @@ class ThresholdPlayer(Player):
 
 
 class NeuralPlayer(Player):
-    """Plays from per-round WinPredictor models: fold weak, call medium, bet strong."""
+    """Plays from per-round WinPredictor models, weighing P(win) against pot odds.
 
-    def __init__(self, models, fold_below=0.3, bet_above=0.7):
+    - folds when P(win) does not cover the price of the call,
+    - pot-bets when P(win) still covers the price after a pot-sized raise,
+    - calls (or checks) otherwise.
+
+    ``caution`` shifts the fold/call frontier: the call must beat the pot
+    odds by that margin. Rounds without a model are played as a call.
+    """
+
+    def __init__(self, models, caution=0.05, bet_margin=0.15):
         super().__init__()
         self.models = models  # dict: round number -> WinPredictor
-        self.fold_below = fold_below
-        self.bet_above = bet_above
+        self.caution = caution
+        self.bet_margin = bet_margin
 
-    def decide(self, table, player_index, to_call, only_call):
+    def decide(self, table, player_index, to_call, only_call, sample):
         model = self.models.get(table.round_num)
         if model is None:
             return CALL, to_call
-        sample = table.make_sample(self, player_index)
         p_win = model.predict_proba(extract_features(sample))
-        if p_win < self.fold_below and to_call > 0:
+
+        pot_after_call = table.pot + to_call
+        pot_odds = to_call / pot_after_call if to_call > 0 else 0.0
+        # price an opponent would face after our pot-sized raise: ~33% equity,
+        # so only raise when our own estimate clears it with a margin
+        raise_odds = (pot_after_call + to_call) / (3 * pot_after_call + to_call)
+
+        if to_call > 0 and p_win < pot_odds + self.caution:
             return FOLD, 0
-        if p_win > self.bet_above and not only_call:
+        if not only_call and p_win > raise_odds + self.bet_margin:
             return BET, to_call + table.pot
         return CALL, to_call
 
 
 class Table:
-    def __init__(self, players, rng=None):
+    def __init__(self, players, rng=None, equity_samples=100):
         assert 2 <= len(players) <= 23
         self.players = players
         self.num_players = len(players)
         self.evaluator = Evaluator()
         self.rng = rng or random.Random()
+        self.equity_samples = equity_samples
         self.reset()
 
     def reset(self):
@@ -120,6 +136,12 @@ class Table:
             "remPlayers": list(self.remaining),
             "rd_num": self.round_num,
         }
+        if self.equity_samples > 0:
+            num_opponents = max(1, sum(self.remaining) - 1)
+            sample["equity"] = estimate_equity(
+                player.hand, self.board, num_opponents=num_opponents,
+                num_samples=self.equity_samples, rng=self.rng,
+                evaluator=self.evaluator)
         if len(player.hand) + len(self.board) >= 5:
             player_score = self.evaluator.evaluate(player.hand, self.board)
             hand_rank = self.evaluator.get_rank_class(player_score)
@@ -194,10 +216,12 @@ class Table:
         return winners
 
 
-def generate_training_data(num_games, path, num_players=2, seed=None, print_every=10000):
+def generate_training_data(num_games, path, num_players=2, seed=None,
+                           print_every=10000, equity_samples=100):
     """Simulate heads-up (or multiway) hands between ThresholdPlayers to JSON."""
     rng = random.Random(seed)
-    table = Table([ThresholdPlayer() for _ in range(num_players)], rng=rng)
+    table = Table([ThresholdPlayer() for _ in range(num_players)], rng=rng,
+                  equity_samples=equity_samples)
     samples = []
     for i in range(num_games):
         samples += table.play_game(dealer_index=rng.randrange(num_players))
