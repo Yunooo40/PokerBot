@@ -216,19 +216,26 @@ class Table:
         return winners
 
 
-def generate_training_data(num_games, path, num_players=2, seed=None,
-                           print_every=10000, equity_samples=100):
-    """Simulate heads-up (or multiway) hands between ThresholdPlayers to JSON."""
+def generate_training_data(num_games, path=None, players=None, num_players=2,
+                           seed=None, print_every=10000, equity_samples=100):
+    """Simulate hands and return the logged samples (optionally saved to JSON).
+
+    ``players`` defaults to ``num_players`` ThresholdPlayers; pass your own
+    list (e.g. NeuralPlayers) to generate self-play data.
+    """
     rng = random.Random(seed)
-    table = Table([ThresholdPlayer() for _ in range(num_players)], rng=rng,
-                  equity_samples=equity_samples)
+    if players is None:
+        players = [ThresholdPlayer() for _ in range(num_players)]
+    table = Table(players, rng=rng, equity_samples=equity_samples)
     samples = []
     for i in range(num_games):
-        samples += table.play_game(dealer_index=rng.randrange(num_players))
+        samples += table.play_game(dealer_index=rng.randrange(len(players)))
         if print_every and i % print_every == 0:
             print("simulated %d/%d games" % (i, num_games))
-    with open(path, "w") as f:
-        json.dump(samples, f)
-    wins = sum(1 for s in samples if s["result"] == 1)
-    print("wrote %d samples to %s (win ratio %.3f)" % (len(samples), path, wins / len(samples)))
+    if path is not None:
+        with open(path, "w") as f:
+            json.dump(samples, f)
+        wins = sum(1 for s in samples if s["result"] == 1)
+        print("wrote %d samples to %s (win ratio %.3f)"
+              % (len(samples), path, wins / len(samples)))
     return samples

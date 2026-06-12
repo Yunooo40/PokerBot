@@ -16,8 +16,11 @@ otherwise.
 - `pokerbot/` — the package
   - `simulator.py` — game engine, heuristic and neural players, data generation
   - `evaluator.py` — 5/6/7-card hand evaluator (adapted from [deuces](https://github.com/worldveil/deuces))
+  - `equity.py` — Monte-Carlo showdown equity estimation
   - `features.py`, `dataset.py` — feature extraction and data loading
   - `model.py`, `train.py` — the win-predictor MLP and its training CLI
+  - `selfplay.py` — iterative self-play training across generations
+  - `arena.py` — fair head-to-head match runner (seat/button rotation, bb/100)
 - `legacy/` — the original TensorFlow 1.x notebook exports, kept for reference
 - `Result/` — TF1 checkpoints trained with the legacy code (not loadable by
   the new PyTorch pipeline)
@@ -56,6 +59,20 @@ cards are visible), so train one model per round and pass them to
 Reference run (10k simulated games, 40 epochs): test accuracy 0.56 / 0.66 /
 0.69 / 0.81 for rounds 0-3, and the full NeuralPlayer beats ThresholdPlayer
 by roughly +600 bb/100 over 2000 hands.
+
+## Self-play
+
+Generation 0 learns from heuristic-vs-heuristic games, which never fold;
+later generations regenerate data with the previous generation's bot playing
+itself (and the heuristic, for diversity) and retrain, so the labels start
+reflecting fold equity:
+
+```bash
+python -m pokerbot.selfplay models/selfplay --iterations 3 --games 10000
+
+# compare any two bots fairly (seats and button rotate)
+python -m pokerbot.arena models/selfplay threshold --hands 2000
+```
 
 ## Data format
 
