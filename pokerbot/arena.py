@@ -11,6 +11,7 @@ a model directory against the built-in heuristic:
 """
 
 import argparse
+import math
 import os
 import random
 
@@ -19,7 +20,12 @@ from .simulator import BIG_BLIND, NeuralPlayer, Table, ThresholdPlayer
 
 
 def play_match(player_a, player_b, num_hands=2000, rng=None, equity_samples=100):
-    """Play ``num_hands`` between two players; returns (hands_won_a, bb100_a)."""
+    """Play ``num_hands`` between two players.
+
+    Returns (hands_won_a, bb100_a, stderr_bb100): the win rate comes with its
+    standard error because pots run up to 200 big blinds in this engine, so
+    bb/100 over a few thousand hands is noisy.
+    """
     rng = rng or random.Random()
     # one table per seating order; player_a sits in seat 0, then seat 1
     tables = [
@@ -28,7 +34,7 @@ def play_match(player_a, player_b, num_hands=2000, rng=None, equity_samples=100)
     ]
     a_seats = (0, 1)
     hands_won = 0
-    chips = 0.0
+    outcomes = []
     for i in range(num_hands):
         table = tables[i % 2]
         seat = a_seats[i % 2]
@@ -37,11 +43,14 @@ def play_match(player_a, player_b, num_hands=2000, rng=None, equity_samples=100)
         bet = table.bets[seat]
         if seat in winners:
             hands_won += 1
-            chips += table.pot / len(winners) - bet
+            outcomes.append(table.pot / len(winners) - bet)
         else:
-            chips -= bet
-    bb100 = 100.0 * chips / BIG_BLIND / num_hands
-    return hands_won, bb100
+            outcomes.append(-bet)
+    mean = sum(outcomes) / num_hands
+    var = sum((o - mean) ** 2 for o in outcomes) / max(1, num_hands - 1)
+    bb100 = 100.0 * mean / BIG_BLIND
+    stderr = 100.0 * math.sqrt(var / num_hands) / BIG_BLIND
+    return hands_won, bb100, stderr
 
 
 def load_round_models(models_dir):
@@ -71,13 +80,13 @@ def main():
     parser.add_argument("--equity-samples", type=int, default=100)
     args = parser.parse_args()
 
-    hands_won, bb100 = play_match(
+    hands_won, bb100, stderr = play_match(
         _make_player(args.player_a), _make_player(args.player_b),
         num_hands=args.hands, rng=random.Random(args.seed),
         equity_samples=args.equity_samples)
-    print("%s vs %s over %d hands: %d hands won (%.1f%%), %+.1f bb/100"
+    print("%s vs %s over %d hands: %d hands won (%.1f%%), %+.1f +/- %.1f bb/100"
           % (args.player_a, args.player_b, args.hands,
-             hands_won, 100.0 * hands_won / args.hands, bb100))
+             hands_won, 100.0 * hands_won / args.hands, bb100, stderr))
 
 
 if __name__ == "__main__":

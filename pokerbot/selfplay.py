@@ -59,15 +59,16 @@ def selfplay(out_dir, iterations=3, games=10000, epochs=40, equity_samples=100,
             save_model(model, os.path.join(out_dir, "gen%d_round%d.pt" % (it, round_num)))
 
         rng = random.Random(seed + 100 + it)
-        _, bb100_thr = play_match(NeuralPlayer(models), ThresholdPlayer(),
-                                  num_hands=eval_hands, rng=rng,
-                                  equity_samples=equity_samples)
-        print("gen %d vs threshold: %+.1f bb/100" % (it, bb100_thr))
+        _, bb100_thr, err_thr = play_match(NeuralPlayer(models), ThresholdPlayer(),
+                                           num_hands=eval_hands, rng=rng,
+                                           equity_samples=equity_samples)
+        print("gen %d vs threshold: %+.1f +/- %.1f bb/100" % (it, bb100_thr, err_thr))
         if prev_models is not None:
-            _, bb100_prev = play_match(NeuralPlayer(models), NeuralPlayer(prev_models),
-                                       num_hands=eval_hands, rng=rng,
-                                       equity_samples=equity_samples)
-            print("gen %d vs gen %d: %+.1f bb/100" % (it, it - 1, bb100_prev))
+            _, bb100_prev, err_prev = play_match(
+                NeuralPlayer(models), NeuralPlayer(prev_models),
+                num_hands=eval_hands, rng=rng, equity_samples=equity_samples)
+            print("gen %d vs gen %d: %+.1f +/- %.1f bb/100"
+                  % (it, it - 1, bb100_prev, err_prev))
         prev_models = models
 
     # also save the last generation under the plain names arena expects
