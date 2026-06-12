@@ -74,6 +74,23 @@ python -m pokerbot.selfplay models/selfplay --iterations 3 --games 10000
 python -m pokerbot.arena models/selfplay threshold --hands 2000
 ```
 
+Reference run (3 generations x 5k games, 30 epochs, evaluated over 4000
+hands):
+
+| match              | bb/100        |
+|--------------------|---------------|
+| gen 0 vs threshold | +326 +/- 141  |
+| gen 1 vs threshold | +1286 +/- 95  |
+| gen 2 vs threshold | +1218 +/- 96  |
+| gen 1 vs gen 0     | +2071 +/- 185 |
+| gen 2 vs gen 1     | +584 +/- 82   |
+
+Each generation beats the previous one decisively even when their win rates
+against the heuristic look similar — the heuristic never folds, so it cannot
+expose the skills the generations learn from each other. Note the variance:
+single-thousand-hand matches can be off by hundreds of bb/100, which is why
+`play_match` reports a standard error.
+
 ## Data format
 
 `pokerbot.simulate` writes a JSON list of per-decision samples, schema-
